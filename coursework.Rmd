@@ -1,0 +1,705 @@
+---
+title: "Transport Accessibility in Singapore"
+output:
+  html_document:
+    theme: yeti
+    smart: true
+    highlight: textmate
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+# Setting Up Data  
+1. First, load all the packages required. 
+```{r}
+library(maptools)
+library(RColorBrewer)
+library(classInt)
+library(OpenStreetMap)
+library(sp)
+library(rgeos)
+library(tmap)
+library(tmaptools)
+library(sf)
+library(rgdal)
+library(geojsonio)
+library(tidyverse)
+library(leaflet)
+library(downloader)
+library(rgdal)
+library(ggplot2)
+library(reshape2)
+library(plotly)
+library(highcharter)
+library(histogram)
+library(viridis)
+library(methods)
+
+```
+
+2. Read in the planning areas (which also contains some age data) shapefile as a Simple Features object. 
+```{r}
+# Read in Singapore planning areas with age group shapefile as sf object 
+SGMapSF<-st_read("singapore-residents-by-planning-area-age-group-and-sex-june-2015-gender-shp/PLAN_BDY_AGE_GENDER_2015.shp")
+```
+
+3. Read in the cleaned and processed census data as a CSV file. 
+```{r}
+SGData<-read_csv("sgdata_final.csv")
+```
+
+# Map-making with census data 
+4. Now merge the census data to our SF object by planning area name, "PLN_AREA_N". In order to create maps which include all planning areas (including those with missing census data), the first merge function with all.x allows us to that. However, this creates problems for further analysis, so create a second dataframe which drops all planning areas for which census information is missing. 
+```{r}
+# join the census data to SF object 
+SGDataMap<-merge(x=SGMapSF, 
+             y=SGData, 
+             by="PLN_AREA_N", 
+             all.x = TRUE)
+
+# create second dataframe which drops all planning areas with missing information 
+SGDataMap2<-merge(SGMapSF, 
+             SGData, 
+             by.x="PLN_AREA_N", 
+             by.y="PLN_AREA_N",
+             no_dups=TRUE)
+
+
+```
+
+5. The code below creates maps depicting the percentage of working persons whose travel time to work for both under and over 45 minutes across planning areas for which this information is available.  
+```{r}
+
+#set tmap mode to plotting 
+tmap_mode('plot')
+
+
+# Create first map for travel time under 45 minutes 
+map1<-tm_shape(SGDataMap)+
+  tm_polygons("% of Working Persons' Travel Time to Work Up to 45 Min - 2015",palette="BuPu")+
+  tm_scale_bar(text.size=0.4,position = c("right", "top"))+
+  tm_compass(size=1.5)+
+  tm_credits("a)",position=c("left","top"),size=1)+
+  tm_layout(frame=FALSE)
+
+# Second map for travel time over 45 minutes 
+map2<-tm_shape(SGDataMap)+
+  tm_polygons("% of Working Persons' Travel Time to Work Over 45 Min - 2015",palette="BuPu")+
+  tm_scale_bar(text.size=0.4,position = c("right", "top"))+
+  tm_compass(size=1.5)+
+  tm_credits("b)",position=c("left","top"),size=1)+
+  tm_layout(frame=FALSE)
+
+# this arranges the maps in grid layout 
+tm1<-tmap_arrange(map1,map2)
+tm1
+
+```
+```{r}
+# export maps 
+tmap_save(tm1,filename="work_travel.png")
+```
+
+
+6. To further examine further spatial variation in the dependent variable, plot maps of usual transport mode to work by public transport and income over $10,000. 
+```{r}
+# Plot maps of usual transport mode to work and income 
+library(tmap)
+library(tmaptools)
+
+# first map of public transport mode choice 
+map4<-tm_shape(SGDataMap)+
+  tm_polygons("% of Working Persons Usual Mode of Transport to Work by Public Transport - 2015")+
+  tm_credits("a)",position=c("left","top"),size=1)+
+  tm_layout(frame=FALSE)+
+  tm_legend(show=FALSE)
+
+map5<-tm_shape(SGDataMap)+
+  tm_polygons("% of Working Persons with Gross Monthly Income from Work Over S$10,000")+
+  tm_credits("b)",position=c("left","top"),size=1)+
+  tm_layout(frame=FALSE,legend.outside=TRUE)+
+  tm_legend(show=FALSE)
+
+legend<-tm_shape(SGDataMap)+tm_fill("% of Working Persons with Gross Monthly Income from Work Over S$10,000",title="% of Working Persons in Planning Area",title.size=0.5)+tm_layout(legend.only = TRUE,legend.position=c(0.2,0.25),asp=0.1)+tm_compass(size=1.5,position=c(0.55,0.4))+tm_scale_bar(text.size=0.6,position=c(0.5,0.2))
+
+tm2<-tmap_arrange(map4,map5,legend,ncol=2)
+tmap_save(tm2, filename = "income_public transport.png")
+
+```
+
+# Descriptive Statistics 
+## Dependent Variable 
+7. The code below generates some descriptive statistics for our dependent variable - percentage of working persons' travel time to work under 45 minutes. 
+```{r}
+# Descriptive Statistics 
+summary(SGDataMap2)
+
+# Create histogram of dependent variable for regression model 
+histplot <- ggplot(data=SGDataMap2, aes(x=`% of Working Persons' Travel Time to Work Up to 45 Min - 2015`,y=..density..)) + geom_histogram(colour = "black", fill = "white", binwidth=3)
+
+# this adds lines and annotations indicating the mean, median, IQR
+# also adds annotation for range 
+histplot1<-histplot+geom_vline(xintercept=mean(SGDataMap2$`% of Working Persons' Travel Time to Work Up to 45 Min - 2015`), colour="red", size=1) + geom_vline(xintercept=median(SGDataMap2$`% of Working Persons' Travel Time to Work Up to 45 Min - 2015`), colour="blue", size=1)+geom_density(colour="red", size=1, adjust=1)+geom_vline(xintercept=65.94, colour="dark green", size=1)+geom_vline(xintercept=81.26, colour="dark green", size=1)+
+annotate("text", x=60, y=0.04, label="IQR:15.32")+annotate("text", x=60, y=0.045, label="Range:37.96")+annotate("text", x=90, y=0.04, label="Mean:73.13")+annotate("text", x=90, y=0.035, label="Median:73.67")
+
+histplot1
+
+# export histogram 
+ggsave("myplot.png", plot = histplot1)
+
+```
+
+## Independent Variables 
+8. Next, we want to plot histograms of the selected independent variables in our final model. 
+```{r}
+# Plot faceted histograms for independent variables  
+list1 <- as.data.frame(cbind(lapply(SGDataMap2, class)))
+list1 <- cbind(list1, seq.int(nrow(list1)))
+SGSub<-SGDataMap2[,c(1:2,4:61)]
+
+# Set geometry to null to avoid errors 
+# Create subsets for better visualisation of histogram plots 
+SGSub2 <- st_set_geometry(SGSub[,c(1:2,41:42)],NULL)
+SGSub3 <- st_set_geometry(SGSub[,c(1:2,34:35)],NULL)
+
+# Histograms of income variable
+SGMelt2 <- melt(SGSub2, id.vars = 1:2)
+attach(SGMelt2)
+hist2 <- ggplot(SGMelt2, aes(x=value)) + geom_histogram(aes(y = ..density..),binwidth=3) + geom_density(colour="red", size=1, adjust=1.5)
+hist2<-hist2 + facet_wrap(~ variable, scales="free")
+
+# Histograms of dwelling variables 
+SGMelt3 <- melt(SGSub3, id.vars = 1:2)
+attach(SGMelt3)
+hist3 <- ggplot(SGMelt3, aes(x=value)) + geom_histogram(aes(y = ..density..),bins=10) + geom_density(colour="red", size=1, adjust=1)
+hist3<-hist3 + facet_wrap(~ variable, scales="free")
+
+hist2 
+hist3
+
+# export histograms
+ggsave("myplot2.png", plot = hist2)
+ggsave("myplot3.png", plot = hist3)
+
+```
+
+
+```{r}
+# Measuring skewness of independent variables 
+```
+
+# Isochrone Analysis 
+## Setting up OTP Server  
+9. Before we can generate the isochrones, first download Singapore's transport data in GTFS format from https://github.com/yinshanyang/singapore-gtfs. Place it into an empty directory for use with Open Trip Planner, such as /home/username/otp on Linux, /Users/username/otp on OSX, or C:\Users\username\otp on Windows. Do not unzip the file, and ensure the file extension ends with .zip so that OTP can detect it. 
+
+10. We will also need Open Street Map data which can be obtained from https://download.bbbike.org/osm/bbbike/Singapore/. Download the PBF version into the same directory created in the previous step. 
+
+11. We now need to set up a local instance of an Open Trip Planner server. OpenTripPlanner is in Java form and can be used via a JAR file. Go to the OTP directory with the highest version number at Maven Central(https://repo1.maven.org/maven2/org/opentripplanner/otp/), and download the file with extension .shaded.jar.Because OTP must be run without a Java Virtual Machine, ensure that your version of Java is at least version 1.8. 
+
+12. The command to start up OTP is:
+$ java -Xmx2G -jar otp-0.19.0-shaded.jar --build /home/username/otp --inMemory
+
+And /home/username/otp should be the directory where the downloaded files are. This process builds a graph for OTP, and when completed, the message "Grizzly server running" should appear. The local instance on OTP can be accessed by typing http://localhost:8080/ in a web browser. 
+
+## Generating Isochrones 
+13. We can now generate isochrones of travel time. The code below creates a function that automates the retrieval of geoJSON multipolygons for a given centroid. 
+```{r}
+# Generate isochrone of travel time 
+library(httr)
+
+# create function for retrieving geoJSON of isochrones for a centroid 
+get_geojson<-function(lat,lng,filename){
+
+# this queries the OTP server 
+current <- GET(
+  "http://localhost:8080/otp/routers/default/isochrone",
+  query = list(
+    fromPlace = paste(lat,lng,sep = ","), # latlong of place
+    mode = "WALK,TRANSIT", # transport modes we want the route planner to use
+    date = "07-10-2018", 
+    time= "08:00am",
+    maxWalkDistance = 1600, # in metres
+    walkReluctance = 5,
+    minTransferTime = 60, # in secs
+    cutoffSec = 900,  # 15 minutes 
+    cutoffSec = 1800, # 30 minutes
+    cutoffSec = 2700, # 45 minutes 
+    cutoffSec = 3600  # 60 minutes
+  )
+)
+
+current <- content(current, as = "text", encoding = "UTF-8")
+write(current, file = paste(filename,".geojson"))
+}
+
+```
+
+14. This creates a function to automate the generation of an isochrone map using the geojson file of every planning area 
+```{r}
+# set colour palette for isochrone 
+pal <- magma(4,begin=0.1,end=1,direction = 1)
+
+# function for getting col2Hex of viridis palettes 
+appsilon_col2Hex <- function(col) {
+    mat <- grDevices::col2rgb(col, alpha = TRUE)
+    grDevices::rgb(mat[1, ]/255, mat[2, ]/255, mat[3,]/255)
+}
+get_viridis_colors <- function(no_colors){
+  appsilon_col2Hex(viridis::viridis_pal(option = "B")(no_colors))
+}
+# function to create isochrone map 
+get_isoline<-function(filename){
+  isoline <- geojsonio::geojson_read(filename,
+  what = "sp")
+  isomap<-leaflet(isoline) %>%
+    setView(lng = 103.8198, lat = 1.3521, zoom = 11) %>% # sets basemap to Singapore
+  addTiles(urlTemplate = paste0('https://api.mapbox.com/styles/v1/mapbox/light-v9/tiles/256/{z}/{x}/{y}@2x?',                               'access_token=pk.eyJ1IjoiYnlvbGxpbiIsImEiOiJjanNleDR0enAxOXZ5NDRvYXMzYWFzejA','2In0.GGB4yI6z0leM1_BwGEYfiQ'),
+ attribution = '<a href="https://www.mapbox.com/about/maps/" title="Mapbox" target="_blank">Mapbox ©</a> | \
+                                    Map data provided by <a href="https://www.openstreetmap.org/copyright" \
+                                    title="OpenStreetMap Contributors" target="_blank">OpenStreetMap © Contributors</a>')%>%  
+  addPolygons(stroke = TRUE, weight=0.8, # this adds the isochrone multipolygons
+              smoothFactor = 0.3, 
+              color=pal,
+              fillOpacity = 0.4,
+              fillColor = pal,
+              highlight = highlightOptions(
+              weight = 2,
+              color = "black",
+              bringToFront = FALSE)) %>%
+  addLegend(position="bottomleft",colors=rev(pal), # this creates the map legend
+            labels=rev(c("60 min","45 min",
+                     "30 min","15 min")),
+            opacity = 0.6,
+            title="Travel Time with Public Transport")
+isomap
+}
+
+```
+
+15. Now calculate centroids of planning areas. 
+```{r}
+
+# reproject the sf to SVY21, Singapore's CRS
+# using EPSG string 3414
+projectedSGMapSF <- st_transform(SGMapSF, 3414)
+centroids<-st_centroid(projectedSGMapSF)
+
+# need to change projection to WGS84 to use with OTP
+centroids2<-st_transform(centroids,4326)
+
+# plot centroids 
+plot(st_geometry(projectedSGMapSF))
+plot(centroids[,'geometry'], add = T, col = 'red',pch=20) 
+
+```
+16. Now we can generate geoJSON files for each planning area using the get_geojson function that was created earlier. 
+```{r}
+get_geojson(1.354967,103.840415,"Bishan")
+get_geojson(1.35565999970521,103.754742813979,"Bukit Batok")
+get_geojson(1.2754913268799,103.823127234208,"Bukit Merah")
+get_geojson(1.36384254148646,103.728753964324,"Tengah")
+get_geojson(1.32998917827548,103.790697967313,"Bukit Timah")
+get_geojson(1.34365570500627,103.954260081837,"Tampines")
+get_geojson(1.38555590814507,103.747190551275,"Choa Chu Kang")
+get_geojson(1.31258699622372,103.672987604735,"Pioneer")
+get_geojson(1.4406798571943,103.787703951863, "Woodlands")
+get_geojson(1.32404687520826,103.928409452018, "Bedok")
+get_geojson(1.36520148329041,103.867818072811,"Serangoon")
+get_geojson(1.37861811226888,103.948298544705, "Paya Lebar")
+get_geojson(1.30837447877642,103.817594833064,"Tanglin")
+get_geojson(1.36682211355646,103.772998028527,"Bukit Panjang")
+get_geojson(1.31760016615486,103.760745833228,"Clementi")
+get_geojson(1.32089837514229,103.889523392508,"Geylang")
+get_geojson(1.32698375621937,103.835308930096,"Novena")
+get_geojson(1.37861811226888,103.948298544705,"Pasir Ris")
+get_geojson(1.4143411528954,103.877101255157,"Seletar")
+get_geojson(1.45574704578932,103.818827683485,"Sembawang")
+get_geojson(1.31479262026804,103.702223645862,"Boon Lay")
+get_geojson(1.3912792632583,103.887698962104,"Sengkang")
+get_geojson(1.38009240682989,103.842096537248,"Ang Mo Kio")
+get_geojson(1.33668358945459,103.861025880401,"Toa Payoh")
+get_geojson(1.41497461190687,103.836949196162,"Yishun")
+get_geojson(1.28506467360515,103.85430116503,"Downtown Core")
+get_geojson(1.28851730495479,103.872351635639,"Marina East")
+get_geojson(1.30866002354009,103.838077803816,"Newton")
+get_geojson(1.30380687559767,103.833580435708,"Orchard")
+get_geojson(1.28053129620192,103.865628534788,"Marina South")
+get_geojson(1.29591621866479,103.846713970411,"Museum")
+get_geojson(1.36363752631216,103.889800440281,"Hougang")
+get_geojson(1.32044370336833,103.73479560348,"Jurong East")
+get_geojson(1.43064277385151,103.719285491066,"Lim Chu Kang")
+get_geojson(1.30022907486971,103.896269406508,"Marine Parade")
+get_geojson(1.40536299861197,103.910043395107,"Punggol")
+get_geojson(1.2890728711753,103.784558894108,"Queenstown")
+get_geojson(1.27851654391185,103.632837048705, "Tuas")
+get_geojson(1.34161199453373,103.704902662306,"Jurong West")
+get_geojson(1.31033540338928,103.866433448016,"Kallang")
+get_geojson(1.44408537792557,103.852919347766,"Simpang")
+get_geojson(1.41812614194391,103.757461272602,"Sungei Kadut")
+get_geojson(1.28285842866538,103.842060984111, "Outram")
+get_geojson(1.29804681602205,103.833973735892,"River Valley")
+get_geojson(1.30425591071558,103.853260195987,"Rochor")
+get_geojson(1.29011465640884,103.841209703773, "Singapore River")
+
+```
+
+17. Similarly, using the get_isoline function, we can create interactive maps reflecting the public transport accessibility of each planning area. We can also add markers such as the ones below to indicate where the centroid lies. 
+```{r}
+get_isoline("Bishan .geojson")%>%
+  addMarkers(lng=103.840415, lat=1.354967,
+             popup="Bishan")
+```
+
+```{r}
+get_isoline("Bukit Batok .geojson")
+```
+
+```{r}
+get_isoline("Bukit Merah .geojson")
+```
+
+```{r}
+get_isoline("Bukit Panjang .geojson")
+```
+
+```{r}
+get_isoline("Bukit Timah .geojson")%>%
+  addMarkers(lng=103.790697967313, lat=1.32998917827548,
+             popup="Bukit Timah")
+```
+
+```{r}
+get_isoline("Choa Chu Kang .geojson")%>%
+  addMarkers(lng=103.747190551275, lat=1.38555590814507,
+             popup="Choa Chu Kang")
+```
+
+```{r}
+get_isoline("Clementi .geojson")
+```
+
+```{r}
+get_isoline("Geylang .geojson")
+```
+```{r}
+get_isoline("Novena .geojson")
+```
+
+```{r}
+get_isoline("Pasir Ris .geojson")
+```
+
+```{r}
+get_isoline("Paya Lebar .geojson")%>%
+  addMarkers(lng=103.948298544705, lat=1.37861811226888,
+             popup="Paya Lebar")
+```
+
+```{r}
+get_isoline("Seletar .geojson")
+
+```
+
+```{r}
+get_isoline("Sembawang .geojson")
+```
+
+```{r}
+get_isoline("Bedok .geojson")%>%
+  addMarkers(lng=103.928409452018, lat=1.32404687520826,
+             popup="Bedok")
+```
+
+```{r}
+get_isoline("Boon Lay .geojson")
+```
+
+```{r}
+get_isoline("Sengkang .geojson")
+```
+```{r}
+get_isoline("Serangoon .geojson")%>%
+  addMarkers(lng=103.867818072811, lat=1.36520148329041,
+             popup="Serangoon")
+```
+
+```{r}
+get_isoline("Ang Mo Kio .geojson")
+```
+
+```{r}
+get_isoline("Tengah .geojson")
+```
+
+```{r}
+get_isoline("Toa Payoh .geojson")
+```
+```{r}
+get_isoline("Yishun .geojson")
+```
+
+```{r}
+get_isoline("Downtown Core .geojson")
+```
+```{r}
+get_isoline("Marina East .geojson")
+```
+```{r}
+get_isoline("Newton .geojson")
+```
+```{r}
+get_isoline("Orchard .geojson")
+```
+
+```{r}
+get_isoline("Woodlands .geojson")%>%
+  addMarkers(lng=103.787703951863, lat=1.4406798571943,
+             popup="Woodlands")
+```
+
+```{r}
+get_isoline("Marina South .geojson")
+```
+
+```{r}
+get_isoline("Museum .geojson")
+```
+
+```{r}
+get_isoline("Hougang .geojson")
+```
+
+
+```{r}
+get_isoline("Jurong East .geojson")
+```
+
+```{r}
+get_isoline("Lim Chu Kang .geojson")
+```
+```{r}
+get_isoline("Marine Parade .geojson")
+```
+
+```{r}
+get_isoline("Pioneer .geojson")%>%
+  addMarkers(lng=103.672987604735, lat=1.31258699622372,
+             popup="Pioneer")
+```
+
+```{r}
+get_isoline("Punggol .geojson")
+```
+```{r}
+get_isoline("Queenstown .geojson")
+```
+
+```{r}
+get_isoline("Tuas .geojson")
+```
+
+```{r}
+get_isoline("Jurong West .geojson")
+```
+```{r}
+get_isoline("Kallang .geojson")
+```
+
+```{r}
+get_isoline("Simpang .geojson")
+```
+```{r}
+get_isoline("Sungei Kadut .geojson")
+```
+
+```{r}
+get_isoline("Tampines .geojson")%>%
+  addMarkers(lng=103.954260081837, lat=1.34365570500627,
+             popup="Tampines")
+```
+
+```{r}
+get_isoline("Tanglin .geojson")%>%
+  addMarkers(lng=103.817594833064, lat=1.30837447877642,
+             popup="Tanglin")
+```
+
+```{r}
+get_isoline("Outram .geojson")
+```
+
+```{r}
+get_isoline("River Valley .geojson")
+```
+
+```{r}
+get_isoline("Rochor .geojson")
+```
+
+```{r}
+get_isoline("Singapore River .geojson")
+```
+
+
+# OLS and Spatial Error Regressions 
+18. To carry out multiple regression of factors affecting work accessibility, the initial model and refined OLS model is run below. 
+
+```{r}
+# Build basic regression model with the two income variables and two dwelling variables 
+model <- lm(`% of Working Persons' Travel Time to Work Up to 45 Min - 2015` ~ `% of Working Persons with Gross Monthly Income from Work S$5000-$9,999`+`% of Working Persons with Gross Monthly Income from Work Over S$10,000`+`% of Households in 1&2 Room Flats - 2015`+`% of Households in 3 Room Flats - 2015`, data = SGDataMap2)
+
+#show the summary of those outputs
+summary(model)
+
+# save residuals 
+SGDataMap2$model_resids <- model$residuals
+```
+
+```{r}
+# Remove one of the insignificant income variable from final model 
+model1 <- lm(`% of Working Persons' Travel Time to Work Up to 45 Min - 2015` ~ `% of Working Persons with Gross Monthly Income from Work Over S$10,000`+`% of Households in 1&2 Room Flats - 2015`+`% of Households in 3 Room Flats - 2015`, data = SGDataMap2)
+
+#show the summary of those outputs
+summary(model1)
+
+# save residuals 
+SGDataMap2$model1_resids <- model1$residuals
+```
+
+19. We need to now check that the five assumptions for linear regression have been satisfied. Firstly, there must be a linear relationship between the y and x variable. Second, the residuals must be normally distributed. Third, there is no multicollinearity between the x variables. 
+```{r}
+library(car)
+# Verify that linear model assumptions have been met 
+
+# Assumption 1 - linear relationship 
+
+q1<- qplot(x = `% of Working Persons with Gross Monthly Income from Work Over S$10,000`, y = `% of Working Persons' Travel Time to Work Up to 45 Min - 2015`,data=SGDataMap2)
+q2<-qplot(x = `% of Working Persons with Gross Monthly Income from Work S$5000-$9,999`, y = `% of Working Persons' Travel Time to Work Up to 45 Min - 2015`, data=SGDataMap2)
+q3<-qplot(x = `% of Households in 1&2 Room Flats - 2015`, y = `% of Working Persons' Travel Time to Work Up to 45 Min - 2015`, data=SGDataMap2)
+q4<-qplot(x = `% of Households in 3 Room Flats - 2015`, y = `% of Working Persons' Travel Time to Work Up to 45 Min - 2015`, data=SGDataMap2)
+
+# plot with regression line 
+q1 + stat_smooth(method="lm", se=FALSE, size=1)
+q2 + stat_smooth(method="lm", se=FALSE, size=1)
+q3 + stat_smooth(method="lm", se=FALSE, size=1)
+q4 + stat_smooth(method="lm", se=FALSE, size=1)
+
+# Assumption 2 - residuals are normally distributed
+
+qplot(model1$residuals) + geom_histogram(binwidth=3) 
+
+# Assumption 3 - No multicollinearity 
+# this calculates correlations for ALL the variables in the dataframe, not just the ones used in the regression 
+library(corrplot) 
+tempdf <- st_set_geometry(SGDataMap2,NULL)
+cormat <- cor(tempdf[28:60], use="complete.obs", method="pearson")
+str(tempdf)
+corrplot(cormat, type = "lower", tl.cex = 0.5)
+# check variance inflation factor  
+vif(model1)
+
+# Assumption 4 - Homoscedascity 
+# Print model diagnositcs. 
+plot(model1)
+
+# Assumption 5 - Independence of Errors/No autocorrelation
+#run durbin-watson test
+durbinWatsonTest(model1)
+
+```
+
+20. Given that we are using spatially referenced data, we should be further checking for spatial autocorrelation using Moran's I. 
+
+```{r}
+#now plot the residuals
+tmap_mode("view")
+
+tm_shape(SGDataMap2) +
+  tm_polygons("model1_resids",
+              palette = "RdYlBu") 
+```
+
+```{r}
+#Firstly convert our SF object into an SP object:
+SGDataMapSP <- as(SGDataMap2,"Spatial")
+
+#and calculate the centroids of all pl
+coordsPA <- coordinates(SGDataMapSP)
+plot(coordsPA)
+
+```
+
+```{r}
+# Now generate a spatial weights matrix 
+library(spData)
+library(spdep)
+
+#First create a neighbours list of queen's contiguity and nearest neighbours
+
+SGPA_nb <- poly2nb(SGDataMapSP, queen=T)
+knn_PA <- knearneigh(coordsPA, k=4)
+SGPA_knn <- knn2nb(knn_PA)
+
+#plot them
+plot(SGPA_nb,coordinates(coordsPA),col='red')
+
+```
+```{r}
+plot(SGPA_knn, coordinates(coordsPA), col="blue")
+```
+
+```{r}
+#create a spatial weights matrix object from these weights
+SGPA.queens_weight <- nb2listw(SGPA_nb, style="C")
+SGPA.knn_4_weight <- nb2listw(SGPA_knn, style="C")
+
+#now run a moran's I test on the residuals
+#first using queens neighbours
+moran.test(SGDataMapSP@data$model1_resids, SGPA.queens_weight)
+#with knn = 4
+moran.test(SGDataMapSP@data$model1_resids, SGPA.knn_4_weight)
+
+```
+21. Now run the spatial error model. 
+
+```{r}
+sem_model1 <- errorsarlm(`% of Working Persons' Travel Time to Work Up to 45 Min - 2015` ~ `% of Working Persons with Gross Monthly Income from Work S$5000-$9,999`+`% of Working Persons with Gross Monthly Income from Work Over S$10,000`+`% of Households in 1&2 Room Flats - 2015`+`% of Households in 3 Room Flats - 2015`, data = SGDataMap2, nb2listw(SGPA_knn, style="C"), method = "eigen")
+
+# print the results of the model 
+summary(sem_model1)
+
+```
+
+22. While we can run the spatially-lagged regression model using the queen's contiguity and k-nearest neighbours, the results of residual autocorrelation were not significant, which explains why this method was not chosen.  
+```{r}
+library(spatialreg)
+#run a spatially-lagged regression model with a queen's case weights matrix
+
+slag_dv_model2_queen <- lagsarlm(`% of Working Persons' Travel Time to Work Up to 45 Min - 2015` ~ `% of Working Persons with Gross Monthly Income from Work Over S$10,000` + `% of Households in 1&2 Room Flats - 2015`+`% of Households in 3 Room Flats - 2015`, data = SGDataMap2, nb2listw(SGPA_nb, style="C"), method = "eigen")
+
+#what do the outputs show?
+summary(slag_dv_model2_queen)
+```
+
+```{r}
+#run a spatially-lagged regression model
+slag_dv_model2_knn4 <- lagsarlm(`% of Working Persons' Travel Time to Work Up to 45 Min - 2015` ~ `% of Working Persons with Gross Monthly Income from Work Over S$10,000` + `% of Households in 1&2 Room Flats - 2015`+`% of Households in 3 Room Flats - 2015`, data = SGDataMap2, nb2listw(SGPA_knn, style="C"), method = "eigen")
+
+#what do the outputs show?
+summary(slag_dv_model2_knn4)
+```
+
+22.Check for spatial autocorrelation. 
+```{r}
+#write out the residuals
+SGDataMapSP@data$slag_dv_model2_knn_resids <- slag_dv_model2_knn4$residuals
+
+#now test for spatial autocorrelation
+moran.test(SGDataMapSP@data$slag_dv_model2_knn_resids, SGPA.knn_4_weight)
+```
+
+
+
+
